@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import base64
-
+from db import create_table, email_exists, save_email
 app = FastAPI()
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -27,7 +27,10 @@ def callback(code: str):
     global flow
     flow.fetch_token(code=code)
     creds = flow.credentials
+
     service = build("gmail", "v1", credentials=creds)
+
+    create_table()
 
     all_results = []
     next_page_token = None
@@ -39,20 +42,29 @@ def callback(code: str):
 
         for m in msgs.get("messages", []):
             msg_id = m["id"]
-            message = service.users().messages().get(userId="me", id=msg_id).execute()
+
+            # skip if already processed
+            if email_exists(msg_id):
+                continue
+
+            message = service.users().messages().get(
+                userId="me", id=msg_id
+            ).execute()
 
             payload = message["payload"]
             headers = payload.get("headers", [])
-            
+
             sender = None
-            date = None
+            subject = None
+
             for h in headers:
                 if h["name"] == "From":
                     sender = h["value"]
-                if h["name"] == "Date":
-                    date = h["value"]
+                if h["name"] == "Subject":
+                    subject = h["value"]
 
             body = ""
+
             if "parts" in payload:
                 for part in payload["parts"]:
                     if part["mimeType"] == "text/plain":
@@ -63,15 +75,19 @@ def callback(code: str):
                 if data:
                     body = base64.urlsafe_b64decode(data).decode()
 
+            summary = body[:200]  # temporary summary
+
+            save_email(msg_id, subject, summary)
+
             all_results.append({
-                "threadId": message["threadId"],
+                "id": msg_id,
                 "sender": sender,
-                "time": date,
-                "snippet": message["snippet"],
-                "body": body
+                "subject": subject,
+                "summary": summary
             })
 
         next_page_token = msgs.get("nextPageToken")
+
         if not next_page_token:
             break
 
