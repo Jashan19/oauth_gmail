@@ -5,13 +5,21 @@ llm=ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 def get_email_content(service, message_id):
     msg=service.users().messages().get(userId="me", id=message_id).execute()
     payload=msg["payload"]
+    headers=payload.get("headers",[])
     parts=payload.get("parts", [])
+    sender=""
+    subject=""
+    for header in headers:
+        if header["name"]=="From":
+            sender=header["value"]
+        if header["name"]=="Subject":
+            subject=header["value"]
+    decoded="no content"
     for part in parts:
         if part["mimeType"]=="text/plain":
-            data=part["body"]["data"],
+            data=part["body"]["data"]
             decoded=base64.urlsafe_b64decode(data).decode("utf-8")
-            return decoded
-        return "no text content found"
+    return decoded, sender, subject
 def generate_reply(email_text):
     prompt = f"""
 You are an AI email assistant.
@@ -25,18 +33,20 @@ Reply:
 
     response = llm.invoke(prompt)
     return response.content
-def create_draft(service, reply_text):
-    message=f"Subject: Re: \n\n{reply_text}"
-    encoded_message=base64.urlsafe_base64encode(message.encode("utf-8")).decode("utf-8")
+def create_draft(service, reply_text, to_email, subject):
+    message=f""" To: {to_email}
+    Subject: Re: {subject}
+    {reply_text}"""
+    encoded_message=base64.urlsafe_b64encode(message.encode("utf-8")).decode("utf-8")
     draft={
-        "messages":{
+        "message":{
             "raw":encoded_message
         }
     }
-    draft=service.users().draft().create(userId="me", body=draft).execute()
+    draft=service.users().drafts().create(userId="me", body=draft).execute()
     return draft
 def main(service, message_id):
-    email_text=get_email_content(service, message_id)
+    email_text, sender, subject=get_email_content(service, message_id)
     reply=generate_reply(email_text)
-    draft=create_draft(service, reply)
+    draft=create_draft(service, reply, sender, subject)
     print("Draft created: ", draft["id"])
