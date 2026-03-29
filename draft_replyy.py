@@ -3,7 +3,7 @@ import base64
 from langchain_google_genai import ChatGoogleGenerativeAI
 llm=ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 def get_email_content(service, message_id):
-    msg=services.users().messages().get(userId="me", id=message_id).execute()
+    msg=service.users().messages().get(userId="me", id=message_id).execute()
     payload=msg["payload"]
     parts=payload.get("parts", [])
     for part in parts:
