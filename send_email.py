@@ -1,30 +1,22 @@
-# gmail_send.py
-from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
-from email.mime.text import MIMEText
-from base64 import urlsafe_b64encode
+import base64
+import re
+def extract_email(sender: str) -> str:
+    """Extracts clean email address from 'Name <email>' format."""
+    match = re.search(r"<(.+?)>", sender)
+    return match.group(1) if match else sender.strip()
+def send_email(service, reply_text: str, sender: str, subject: str) -> dict:
+    """Sends an email reply via Gmail API."""
+    to_email = extract_email(sender)
 
-# 🔐 Load your saved OAuth credentials
-creds = Credentials.from_authorized_user_file("credentials.json")
+    message = f"To: {to_email}\nSubject: Re: {subject}\n\n{reply_text}"
 
-# Gmail service
-service = build("gmail", "v1", credentials=creds)
+    encoded_message = base64.urlsafe_b64encode(
+        message.encode("utf-8")
+    ).decode("utf-8")
 
-
-def send_reply(service, to, subject, reply_text, thread_id, message_id_header):
-    message = MIMEText(reply_text)
-
-    message['to'] = to
-    message['subject'] = "Re: " + subject
-    message['In-Reply-To'] = message_id_header
-    message['References'] = message_id_header
-
-    raw = urlsafe_b64encode(message.as_bytes()).decode()
-
-    return service.users().messages().send(
+    sent = service.users().messages().send(
         userId="me",
-        body={
-            "raw": raw,
-            "threadId": thread_id
-        }
+        body={"raw": encoded_message}
     ).execute()
+
+    return sent
